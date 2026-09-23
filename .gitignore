@@ -1,6 +1,6 @@
 __pycache__
+*.sql
 alembic.ini
 coordinates
 images
 password
-*.sql
