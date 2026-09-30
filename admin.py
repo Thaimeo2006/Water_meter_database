@@ -1,8 +1,8 @@
 """Define UI of admin page"""
 
-from database import User, Customer, WaterRecord
+from database import User, Customer, Meter, MeterRecord
 from sqladmin import ModelView
-from wtforms import Form, StringField, PasswordField
+from wtforms import Form, StringField, PasswordField, FloatField
 from wtforms.validators import DataRequired, Optional, Regexp, Length
 from password_store import pwd_context
 from markupsafe import Markup
@@ -31,6 +31,24 @@ class UserForm(Form):
         ]
     )
 
+class MeterForm(Form):
+    customer_id = StringField(
+        "Customer Identity Number (CCCD)",
+        validators=[DataRequired()]
+    )
+    address = StringField(
+        "Address",
+        validators=[DataRequired()]
+    )
+    latitude = FloatField(
+        "Latitude",
+        validators=[DataRequired()]
+    )
+    longitude = FloatField(
+        "Longitude",
+        validators=[DataRequired()]
+    )
+
 class UserAdmin(ModelView, model=User):
     column_list = [User.id, User.username]
     column_searchable_list = [User.username]
@@ -57,7 +75,7 @@ class UserAdmin(ModelView, model=User):
             data["password_hash"] = pwd_context.hash(plain_password)
 
 class CustomerAdmin(ModelView, model=Customer):
-    column_list = [Customer.id, Customer.name, Customer.identity_number, Customer.address]
+    column_list = [Customer.name, Customer.identity_number, Customer.address]
     column_searchable_list = [Customer.name, Customer.identity_number]
     name = "Customer"
     name_plural = "Customer list"
@@ -67,47 +85,70 @@ class CustomerAdmin(ModelView, model=Customer):
         Customer.name, 
         Customer.identity_number, 
         Customer.address,
-        Customer.latitude,
-        Customer.longitude,
-        Customer.last_paid_record 
+        Customer.meters
     ]
 
-class WaterRecordAdmin(ModelView, model=WaterRecord):
+    form_include_pk = True
+    form_columns = [
+        Customer.identity_number,
+        Customer.name, 
+        Customer.address
+    ]
+
+class MeterAdmin(ModelView, model=Meter):
+    column_list = [Meter.id, Meter.owner, Meter.address]
+    column_searchable_list = [Meter.address]
+    name = "Meter"
+    name_plural = "Meter list"
+    icon = "fa-solid fa-gauge-high"
+
+    column_details_list = [
+        Meter.id,
+        Meter.owner,
+        Meter.address,
+        Meter.latitude,
+        Meter.longitude,
+        Meter.last_paid_record,
+    ]
+
+    form = MeterForm
+
+class MeterRecordAdmin(ModelView, model=MeterRecord):
     column_list = [
-        WaterRecord.id,
-        WaterRecord.customer_id,
-        WaterRecord.photographer_id,
-        WaterRecord.result,
-        WaterRecord.record_time
+        MeterRecord.id,
+        MeterRecord.meter_id,
+        MeterRecord.photographer_id,
+        MeterRecord.result,
+        MeterRecord.record_time
     ]
     column_details_list = [
-        WaterRecord.customer,
-        WaterRecord.image_path,
-        WaterRecord.result, 
-        WaterRecord.record_time,
-        WaterRecord.photographer,
-        WaterRecord.coordinates_path,
-        WaterRecord.ability
+        MeterRecord.meter,
+        MeterRecord.image_path,
+        MeterRecord.result, 
+        MeterRecord.record_time,
+        MeterRecord.photographer,
+        MeterRecord.coordinates_path,
+        MeterRecord.ability
     ]
     column_labels = {
-        WaterRecord.image_path: "image",
-        WaterRecord.coordinates_path: "coordinates"
+        MeterRecord.image_path: "image",
+        MeterRecord.coordinates_path: "coordinates"
     }
     column_formatters_detail = {
-        WaterRecord.image_path: lambda model, attribute: Markup(
+        MeterRecord.image_path: lambda model, attribute: Markup(
             f'<a href="/{model.image_path}" target="_blank">'
             f'<img src="/{model.image_path}" style="max-height: 300px; border-radius: 8px; border: 1px solid #ccc; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">'
             f'</a>'
         ) if model.image_path else "",
         
-        WaterRecord.coordinates_path: lambda model, attribute: Markup(
+        MeterRecord.coordinates_path: lambda model, attribute: Markup(
             f'<a href="/{model.coordinates_path}" target="_blank" style="padding: 8px 16px; background-color: #0d6efd; color: white; text-decoration: none; border-radius: 4px; display: inline-block;">'
             f'<i class="fa-solid fa-file-lines"></i> See .txt file'
             f'</a>'
         ) if model.coordinates_path else ""
     }
-    column_sortable_list = [WaterRecord.record_time, WaterRecord.result]
+    column_sortable_list = [MeterRecord.record_time, MeterRecord.result]
     column_default_sort = ("record_time", True) 
-    name = "Water record"
-    name_plural = "Water record list"
+    name = "Meter record"
+    name_plural = "Meter record list"
     icon = "fa-solid fa-droplet"

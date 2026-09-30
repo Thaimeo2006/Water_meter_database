@@ -1,7 +1,7 @@
 """Main program, run the server, manage admin page, connect to mobile app"""
 
-from database import SessionLocal, User, Customer, WaterRecord, engine
-from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, Form, Query, Header, Request
+from database import SessionLocal, User, Customer, Meter, MeterRecord, engine
+from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, Form, Query, Header, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqladmin import Admin
 from sqladmin.authentication import AuthenticationBackend
 from datetime import datetime, timezone, timedelta
-from admin import UserAdmin, CustomerAdmin, WaterRecordAdmin
+from admin import UserAdmin, CustomerAdmin, MeterAdmin, MeterRecordAdmin
 from password_store import pwd_context
 from starlette.background import BackgroundTasks
 from uuid import uuid4
@@ -138,7 +138,57 @@ admin = Admin(app, engine, authentication_backend=AdminAuth(secret_key=secrets.t
 #Menu page for admin initialize
 admin.add_view(UserAdmin)
 admin.add_view(CustomerAdmin)
-admin.add_view(WaterRecordAdmin)
+admin.add_view(MeterAdmin)
+admin.add_view(MeterRecordAdmin)
+
+"""
+@app.middleware("http")
+async def log(request: Request, call_next):
+    start_time = time.time()
+
+    # ================= REQUEST =================
+    request_body = await request.body()
+
+    print("\n========== REQUEST ==========")
+    print(f"{request.method} {request.url}")
+
+    print("Headers:")
+    print(dict(request.headers))
+
+    print("Body:")
+    print(request_body.decode("utf-8", errors="replace"))
+
+    # ================= ENDPOINT =================
+    response = await call_next(request)
+
+    # ================= RESPONSE =================
+    response_body = b""
+
+    async for chunk in response.body_iterator:
+        response_body += chunk
+
+    process_time = time.time() - start_time
+
+    print("\n========== RESPONSE ==========")
+    print(f"Status: {response.status_code}")
+    print(f"Time: {process_time:.4f}s")
+
+    print("Headers:")
+    print(dict(response.headers))
+
+    print("Body:")
+    print(response_body.decode("utf-8", errors="replace"))
+
+    print("==============================\n")
+
+    # Trả response lại cho client
+    return Response(
+        content=response_body,
+        status_code=response.status_code,
+        headers=dict(response.headers),
+        media_type=response.media_type,
+    )
+"""
 
 @app.post("/login")
 async def check_login(
@@ -180,7 +230,7 @@ async def logout_user(
 @app.post("/check_and_save")
 async def check_and_save(
     user_id: int = Depends(check_user),
-    customer_id: str = Form(),
+    meter_id: str = Form(),
     image: UploadFile = File(),
     record_time: datetime = Form(),
     result: float = Form(),
@@ -188,11 +238,11 @@ async def check_and_save(
     coordinates: UploadFile = File(),
     db: Session = Depends(get_db)
 ):
-    #Get latest record of customer
+    #Get latest record of meter
     latest_record = (
-        db.query(WaterRecord)
-        .filter(WaterRecord.customer_id == customer_id)
-        .order_by(WaterRecord.record_time.desc())
+        db.query(MeterRecord)
+        .filter(MeterRecord.meter_id == meter_id)
+        .order_by(MeterRecord.record_time.desc())
         .first()
     )
 
@@ -241,8 +291,8 @@ async def check_and_save(
         )
 
     try:
-        new_record = WaterRecord(
-            customer_id=customer_id,
+        new_record = MeterRecord(
+            meter_id=meter_id,
             image_path=image_relativepath,
             record_time= record_time,
             result=result,
@@ -262,7 +312,7 @@ async def check_and_save(
             os.remove(coordinates_relativepath)
         raise HTTPException(
             status_code=500,
-            detail=f"Add to sql database failed. {str(e)}"
+            detail=f"Add to database failed. {str(e)}"
         )
 
     return {
@@ -282,14 +332,14 @@ async def serve_history_summary(
     export_xlsx: bool = Query(default=False),
     db: Session = Depends(get_db)
 ):
-    query = db.query(WaterRecord)
+    query = db.query(MeterRecord)
     if not all_customer:
         if not customer_id:
             raise HTTPException(
                 status_code=400,
                 detail="customer_id is required when all_customer is false."
             )
-        query = query.filter(WaterRecord.customer_id.in_(customer_id))
+        query = query.join(MeterRecord.meter).filter(Meter.customer_id.in_(customer_id))
 
     if month:
         try:
@@ -308,18 +358,18 @@ async def serve_history_summary(
                 1
             )
         query = query.filter(
-            WaterRecord.record_time >= start_time,
-            WaterRecord.record_time <= end_time
+            MeterRecord.record_time >= start_time,
+            MeterRecord.record_time <= end_time
         )
 
     else:
         if start_time:
             start_time = to_utc(start_time)
-            query = query.filter(WaterRecord.record_time >= start_time)
+            query = query.filter(MeterRecord.record_time >= start_time)
         if end_time:
             end_time = to_utc(end_time)
-            query = query.filter(WaterRecord.record_time < end_time)
-    query = query.order_by(WaterRecord.record_time.desc())
+            query = query.filter(MeterRecord.record_time < end_time)
+    query = query.order_by(MeterRecord.record_time.desc())
     if not export_xlsx:
         try:
             records = query.limit(limit).offset(offset).all()
@@ -341,21 +391,22 @@ async def serve_history_summary(
     else:
         try:
             records = query.options(
-                joinedload(WaterRecord.customer),
-                joinedload(WaterRecord.photographer)
+                joinedload(MeterRecord.meter).joinedload(Meter.owner),
+                joinedload(MeterRecord.photographer)
             ).all()
         except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
         
         if not records:
-            raise HTTPException(status_code=404, detail="Không có dữ liệu trong khoảng thời gian này để xuất Excel.")
+            raise HTTPException(status_code=404, detail="No records found at this time.")
         excel_data = []
         for record in records:
             local_time = record.record_time.astimezone(timezone(timedelta(hours=TIME_ZONE)))
             excel_data.append({
-                "Full name": record.customer.name,
-                "Identity number": record.customer.identity_number,
-                "Address": record.customer.address,
+                "Full name": record.meter.owner.name,
+                "Identity number": record.meter.owner.identity_number,
+                "Address": record.meter.owner.address,
+                "Meter_location": record.meter.address,
                 "Record time": local_time.strftime("%Y-%m-%d %H:%M:%S"),
                 "Result": record.result,
                 "Photographer": record.photographer.username
@@ -370,9 +421,10 @@ async def serve_history_summary(
             worksheet.column_dimensions['A'].width = 30
             worksheet.column_dimensions['B'].width = 15
             worksheet.column_dimensions['C'].width = 60
-            worksheet.column_dimensions['D'].width = 20
-            worksheet.column_dimensions['E'].width = 12
-            worksheet.column_dimensions['F'].width = 15
+            worksheet.column_dimensions['D'].width = 60
+            worksheet.column_dimensions['E'].width = 20
+            worksheet.column_dimensions['F'].width = 12
+            worksheet.column_dimensions['G'].width = 15
 
         buffer.seek(0)
         headers = {
@@ -392,7 +444,7 @@ def serve_history_detail(
     db: Session = Depends(get_db)
 ):
     try:
-        record = db.query(WaterRecord).filter(WaterRecord.id == record_id).first()
+        record = db.query(MeterRecord).filter(MeterRecord.id == record_id).first()
 
         if record is None:
             raise HTTPException(status_code=404, detail="Record not found")
@@ -419,7 +471,7 @@ def serve_image(
     db: Session = Depends(get_db)
 ):
     try:
-        record = db.query(WaterRecord).filter(WaterRecord.id == record_id).first()
+        record = db.query(MeterRecord).filter(MeterRecord.id == record_id).first()
 
         if record is None:
             raise HTTPException(status_code=404, detail="Record not found")
@@ -444,20 +496,20 @@ async def serve_nearby_meters(
     longitude: float = Query(...),
     db: Session = Depends(get_db)
 ):
-    #Collect recorded customer today
+    #Collect recorded meter today
     today_start = datetime.now(timezone(timedelta(hours=TIME_ZONE))).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
-    recorded_customer = (
-        db.query(WaterRecord.customer_id)
-        .filter(WaterRecord.record_time >= today_start)
+    recorded_meter = (
+        db.query(MeterRecord.meter_id)
+        .filter(MeterRecord.record_time >= today_start)
     )
     
     #Spherical Law of Cosines Function (to M)
     lat_rad = func.radians(latitude)
     lon_rad = func.radians(longitude)
 
-    db_lat_rad = func.radians(Customer.latitude)
-    db_lon_rad = func.radians(Customer.longitude)
+    db_lat_rad = func.radians(Meter.latitude)
+    db_lon_rad = func.radians(Meter.longitude)
     
     distance_expr = 6371000.0 * func.acos(
         func.sin(lat_rad) * func.sin(db_lat_rad) +
@@ -465,18 +517,20 @@ async def serve_nearby_meters(
     )
 
     try:
-        nearby_customers = (
+        nearby_meters = (
             db.query(
-                Customer.id,
-                Customer.name,
-                Customer.identity_number,
-                Customer.address,
+                Meter.id.label("id"),
+                Meter.address.label("address"),
+                Meter.customer_id.label("customer_id"),
+                Customer.name.label("customer_name"),               
+                Customer.address.label("customer_address"),
                 distance_expr.label("distance_m")
             )
+            .join(Meter.owner)
             .filter(
-                Customer.latitude.isnot(None),
-                Customer.longitude.isnot(None),
-                ~Customer.id.in_(recorded_customer),
+                Meter.latitude.isnot(None),
+                Meter.longitude.isnot(None),
+                ~Meter.id.in_(recorded_meter),
                 distance_expr <= radius
                 )
             .order_by(distance_expr.asc())
@@ -485,17 +539,18 @@ async def serve_nearby_meters(
         )
 
         result = []
-        for customer in nearby_customers:
+        for meter in nearby_meters:
             result.append({
-                "id": customer.id,
-                "name": customer.name,
-                "identity_number": customer.identity_number,
-                "address": customer.address,
-                "distance_m": int(round(customer.distance_m, 0))
+                "id": meter.id,
+                "address": meter.address,
+                "distance_m": int(round(meter.distance_m, 0)),
+                "name": meter.customer_name,
+                "identity_number": meter.customer_id,
+                "customer_address": meter.customer_address,
             })
 
         return {
-            "message": "Retrieved nearby customers successfully!",
+            "message": f"Retrieved nearby meters successfully! Limit: {limit}, Radius: {radius}",
             "data": result,
             "meta": {
 
@@ -505,68 +560,65 @@ async def serve_nearby_meters(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
-@app.post("/new_customer")
-async def make_new_customer(
+@app.post("/new_meter")
+async def make_new_meter(
     user_id: str = Depends(check_user),
-    name: str = Form(),
-    identity_number: str = Form(),
+    customer_id: str = Form(),
     address: str = Form(),
     latitude: float = Form(),
     longitude: float = Form(),
     force_add: bool = Form(False, description="Force add the customer while maybe it existed"),
     db: Session = Depends(get_db)
 ):
-    #Check existed customer with the same identity_number
+    #Check existed meter with the same owner
     if not force_add:
         #Distance function
         lat_rad = func.radians(latitude)
         lon_rad = func.radians(longitude)
-        db_lat_rad = func.radians(Customer.latitude)
-        db_lon_rad = func.radians(Customer.longitude)
+        db_lat_rad = func.radians(Meter.latitude)
+        db_lon_rad = func.radians(Meter.longitude)
         
         distance_expr = 6371000.0 * func.acos(
             func.sin(lat_rad) * func.sin(db_lat_rad) +
             func.cos(lat_rad) * func.cos(db_lat_rad) * func.cos(db_lon_rad - lon_rad)
         )
 
-        check_exist_customer = (
-            db.query(Customer, distance_expr.label("distance_m"))
-            .filter(Customer.identity_number == identity_number)
+        check_exist_meter = (
+            db.query(Meter, distance_expr.label("distance_m"))
+            .filter(Meter.customer_id == customer_id)
             .all()
         )
         
-        if len(check_exist_customer) > 0:
-            return_customer = []
-            for row in check_exist_customer:
-                customer, distance_m = row.Customer, row.distance_m
+        if len(check_exist_meter) > 0:
+            return_meter = []
+            for row in check_exist_meter:
+                meter, distance_m = row.Meter, row.distance_m
                 distance_m = int(round(distance_m, 0))
-                return_customer.append({
-                    "name": customer.name,
-                    "identity_number": customer.identity_number,
-                    "address": customer.address,
+                return_meter.append({
+                    "id": meter.id,
+                    "address": meter.address,
                     "distance": distance_m
                 })
             return {
-                "message": f"Another customer with the same identity number already exists. Still save this new customer?",
-                "exist_customer": return_customer
+                "message": f"Another meter with the same owner already exists. Still save this new meter?",
+                "exist_meter": return_meter
             }
 
     #Save to database
     try:
-        new_customer = Customer(
-            name=name,
-            identity_number=identity_number,
+        new_meter = Meter(
+            customer_id=customer_id,
             address=address,
             latitude=latitude,
             longitude=longitude
         )
-        db.add(new_customer)
+        db.add(new_meter)
         db.commit()
-        db.refresh(new_customer)
+        db.refresh(new_meter)
         
         return {
-            "message": "Add new customer successfully!",
-            "customer_id": new_customer.id
+            "message": "Add new meter successfully!",
+            "meter_id": new_meter.id
         }
     except Exception as e:
         db.rollback()
@@ -582,7 +634,7 @@ async def export_ai_dataset(
     if ai_token != AI_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    records = db.query(WaterRecord).all()
+    records = db.query(MeterRecord).all()
     fd, temp_zip_path = tempfile.mkstemp(suffix=".zip")
     os.close(fd)
 
@@ -614,6 +666,6 @@ async def export_ai_dataset(
     
     return FileResponse(
         path=temp_zip_path, 
-        filename="water_meter_dataset.zip", 
+        filename="meter_dataset.zip", 
         media_type="application/zip"
     )
