@@ -76,11 +76,16 @@ class UserAdmin(ModelView, model=User):
 
 class CustomerAdmin(ModelView, model=Customer):
     column_list = [Customer.name, Customer.identity_number, Customer.address]
+    column_default_sort = [(Customer.identity_number, False)]
     column_searchable_list = [Customer.name, Customer.identity_number]
     name = "Customer"
     name_plural = "Customer list"
     icon = "fa-solid fa-house"
 
+    column_sortable_list = [
+        Customer.identity_number,
+        Customer.address
+    ]
     column_details_list = [
         Customer.name, 
         Customer.identity_number, 
@@ -104,7 +109,6 @@ class MeterAdmin(ModelView, model=Meter):
 
     column_details_list = [
         Meter.id,
-        Meter.owner,
         Meter.address,
         Meter.latitude,
         Meter.longitude,
@@ -121,6 +125,7 @@ class MeterRecordAdmin(ModelView, model=MeterRecord):
         MeterRecord.result,
         MeterRecord.record_time
     ]
+    column_default_sort = [(MeterRecord.record_time, True)]
     column_details_list = [
         MeterRecord.meter,
         MeterRecord.image_path,
