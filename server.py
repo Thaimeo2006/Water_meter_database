@@ -26,6 +26,7 @@ import io
 import aiofiles
 import jwt
 import json
+import time
 
 with open("password/token_for_ai_dev.txt", "r") as f:
     AI_TOKEN = f.read().strip()
@@ -197,7 +198,7 @@ async def check_login(
     db: Session = Depends(get_db)
 ):
     if username=="":
-        return HTTPException(
+        raise HTTPException(
             status_code= 400,
             detail= "Do not leave the username blank"
         )
@@ -214,7 +215,7 @@ async def check_login(
                 "user_id": user_record.id,
                 "session_token": session_token,
             }
-    return HTTPException(
+    raise HTTPException(
         status_code= 400,
         detail= "Invalid username or password."
     )
@@ -234,8 +235,8 @@ async def check_and_save(
     image: UploadFile = File(),
     record_time: datetime = Form(),
     result: float = Form(),
-    ability: int = Form(),
-    coordinates: UploadFile = File(),
+    ability: int = Form(description="0/1/2 label for AI developer"),
+    coordinates: UploadFile = File("Coordinates file for AI developer"),
     db: Session = Depends(get_db)
 ):
     #Get latest record of meter
@@ -487,11 +488,11 @@ def serve_image(
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 """
 
-@app.get("/nearby_meter")
+@app.get("/nearby_meters")
 async def serve_nearby_meters(
     user_id: str = Depends(check_user),
     limit: int = Query(default= DEFAULT_LIMIT_NEARBY_METERS),
-    radius: int = Query(default=DEFAULT_RADIUS_M),
+    radius: int = Query(default=DEFAULT_RADIUS_M, description="Limit distance of return meters (m)"),
     latitude: float = Query(...),
     longitude: float = Query(...),
     db: Session = Depends(get_db)
@@ -563,7 +564,7 @@ async def serve_nearby_meters(
 @app.post("/new_meter")
 async def make_new_meter(
     user_id: str = Depends(check_user),
-    customer_id: str = Form(),
+    identity_number: str = Form(),
     address: str = Form(),
     latitude: float = Form(),
     longitude: float = Form(),
@@ -583,9 +584,21 @@ async def make_new_meter(
             func.cos(lat_rad) * func.cos(db_lat_rad) * func.cos(db_lon_rad - lon_rad)
         )
 
+        check_exist_customer = (
+            db.query(Customer)
+            .filter(Customer.identity_number==identity_number)
+            .all()
+        )
+
+        if not check_exist_customer:
+            raise HTTPException(
+                status_code=400,
+                detail="Customer id is not existed!"
+            )
+
         check_exist_meter = (
             db.query(Meter, distance_expr.label("distance_m"))
-            .filter(Meter.customer_id == customer_id)
+            .filter(Meter.customer_id == identity_number)
             .all()
         )
         
@@ -607,7 +620,7 @@ async def make_new_meter(
     #Save to database
     try:
         new_meter = Meter(
-            customer_id=customer_id,
+            customer_id=identity_number,
             address=address,
             latitude=latitude,
             longitude=longitude
@@ -623,6 +636,64 @@ async def make_new_meter(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+"""
+@app.post("/new_customer_and_meter")
+async def make_new_customer_and_meter(
+    user_id: str = Depends(check_user),
+    customer_name: str = Form(),
+    identity_number: str = Form(),
+    customer_address: str = Form(),
+    address: str = Form(),
+    latitude: float = Form(),
+    longitude: float = Form(),
+    #force_add: bool = Form(False, description="Force add the customer while maybe it existed"),
+    db: Session = Depends(get_db)
+):
+    #Check existed meter with the same owner
+    #Distance function
+    lat_rad = func.radians(latitude)
+    lon_rad = func.radians(longitude)
+    db_lat_rad = func.radians(Meter.latitude)
+    db_lon_rad = func.radians(Meter.longitude)
+    
+    distance_expr = 6371000.0 * func.acos(
+        func.sin(lat_rad) * func.sin(db_lat_rad) +
+        func.cos(lat_rad) * func.cos(db_lat_rad) * func.cos(db_lon_rad - lon_rad)
+    )
+    #Save to database
+    try:
+        new_customer = Customer(
+            name=customer_name,
+            identity_number=identity_number,
+            address=customer_address
+        )
+        db.add(new_customer)
+        db.commit()
+        db.refresh(new_customer)
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    
+    try:
+        new_meter = Meter(
+            customer_id=identity_number,
+            address=address,
+            latitude=latitude,
+            longitude=longitude
+        )
+        db.add(new_meter)
+        db.commit()
+        db.refresh(new_meter)
+        
+        return {
+            "message": "Add new customer successfully! Add new meter successfully!",
+            "meter_id": new_meter.id
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+"""
 
 @app.get("/export_record_data")
 async def export_ai_dataset(
@@ -642,7 +713,7 @@ async def export_ai_dataset(
         with zipfile.ZipFile(temp_zip_path, "w", zipfile.ZIP_DEFLATED) as zip_file:
             csv_buffer = io.StringIO()
             csv_writer = csv.writer(csv_buffer)
-            csv_writer.writerow(["record_id", "image_filename", "coordinates_filename", "ability"])
+            csv_writer.writerow(["record_id", "image_filename", "coordinates_filename", "ability", "result"])
 
             for record in records:
                 img_name = os.path.basename(record.image_path) if record.image_path else ""
@@ -654,7 +725,7 @@ async def export_ai_dataset(
                 if record.coordinates_path and os.path.exists(record.coordinates_path):
                     zip_file.write(record.coordinates_path, arcname=f"coordinates/{coord_name}")
 
-                csv_writer.writerow([record.id, img_name, coord_name, record.ability])
+                csv_writer.writerow([record.id, img_name, coord_name, record.ability, record.result])
 
             zip_file.writestr("dataset_labels.csv", csv_buffer.getvalue())
 
