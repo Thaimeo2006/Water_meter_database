@@ -3,7 +3,7 @@ import sys
 
 def update_database_url(new_password: str):
     with open("password/database_url.txt", "w") as f:
-        f.write(f"mssql+pyodbc://sa:{quote_plus(new_password)}@127.0.0.1:1433/water_meter"
+        f.write(f"mssql+pyodbc://sa:{quote_plus(new_password)}@127.0.0.1:1433/Meter"
             "?driver=ODBC+Driver+18+for+SQL+Server"
             "&TrustServerCertificate=yes"
         )
