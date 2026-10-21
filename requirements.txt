@@ -1,0 +1,14 @@
+aiofiles==25.1.0
+alembic==1.20.0
+fastapi==0.141.1
+MarkupSafe==3.0.3
+pandas==3.0.5
+passlib==1.7.4
+PyJWT==2.14.0
+pyodbc==5.3.0
+requests==2.34.2
+sqladmin==0.31.1
+SQLAlchemy==2.0.52
+starlette==1.6.0
+uvicorn==0.52.4
+WTForms==3.2.2
