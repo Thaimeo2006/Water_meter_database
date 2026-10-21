@@ -1,8 +1,7 @@
 """Declare tables structure in sql database"""
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, func
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, func, Unicode
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
-from urllib.parse import quote_plus
 import secrets
 
 
@@ -26,9 +25,9 @@ class User(Base):
 class Customer(Base):
     __tablename__ = "customers"
 
-    name = Column(String(40))
+    name = Column(Unicode(40))
     identity_number = Column(String(12), primary_key=True, nullable=False)
-    address = Column(String(120), nullable=False)
+    address = Column(Unicode(120))#, nullable=False)
 
     meters = relationship(
         "Meter", 
@@ -40,7 +39,7 @@ class Meter(Base):
 
     id = Column(String(64), primary_key=True, default=lambda: secrets.token_hex(32))
     customer_id = Column(String(12), ForeignKey("customers.identity_number"))
-    address = Column(String(120), nullable=False)
+    address = Column(Unicode(120), nullable=False)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
 
