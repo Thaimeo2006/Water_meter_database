@@ -28,6 +28,8 @@ class Customer(Base):
     name = Column(Unicode(40))
     identity_number = Column(String(12), primary_key=True, nullable=False)
     address = Column(Unicode(120))#, nullable=False)
+    card_id = Column(String(12), nullable=True)
+    phone_number = Column(String(15), nullable=True)
 
     meters = relationship(
         "Meter", 
@@ -71,7 +73,7 @@ class MeterRecord(Base):
 
     id = Column(Integer, primary_key=True)
     meter_id = Column(String(64), ForeignKey("meters.id"))
-    image_path = Column(String(256), nullable=False)
+    image_path = Column(String(256), nullable=True)
     record_time = Column(DateTime(timezone= True), server_default=func.sysdatetimeoffset(), nullable= False)
     result = Column(Float, nullable= False)
     ability = Column(Integer)
