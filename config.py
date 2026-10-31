@@ -8,6 +8,7 @@ with open("password/jwt_secret_key.txt", "rb") as f:
 
 with open("config.json", "r") as f:
     config = json.load(f)
+    HOST = f"http://{config["public_ip"]}/"
     JWT_ALGORITHM =config["jwt_algorithm"]
     USER_SESSION_TOKEN_EXPIRE_DAYS = config["user_session_token_expire_days"]
     ADMIN_SESSION_TOKEN_EXPIRE_DAYS = config["admin_session_token_expire_days"]
