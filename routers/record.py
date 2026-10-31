@@ -135,7 +135,7 @@ async def update_record(
     if latest_record.id != record_id:
         raise HTTPException(status_code=400, detail="Only commit the latest record!")
 
-    if record.user_id != user_id:
+    if record.photographer_id != user_id:
         raise HTTPException(
             status_code=403, 
             detail="Cannot edit the record which create by another user."
@@ -167,7 +167,7 @@ async def delete_record(
             detail="Only delete the latest record."
         )
 
-    if record.user_id != user_id:
+    if record.photographer_id != user_id:
         raise HTTPException(
             status_code=403, 
             detail="Cannot delete the record which create by another user."
