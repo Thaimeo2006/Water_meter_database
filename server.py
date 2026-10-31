@@ -1,6 +1,6 @@
 """Main program, run the server, manage admin page, connect to mobile app"""
 
-from routers import auth, record, history, meter, customer, AI_dev
+from routers import auth, record, history, meter, search, AI_dev
 from routers.admin import AdminAuth
 from ultis import *
 from database import engine
@@ -33,5 +33,5 @@ app.include_router(auth.router)
 app.include_router(record.router)
 app.include_router(history.router)
 app.include_router(meter.router)
-app.include_router(customer.router)
+app.include_router(search.router)
 app.include_router(AI_dev.router)
